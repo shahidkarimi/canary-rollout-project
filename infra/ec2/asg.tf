@@ -92,6 +92,7 @@ data "aws_iam_policy_document" "instance" {
   statement {
     sid = "CanarySignals"
     actions = [
+      "elasticloadbalancing:DescribeLoadBalancers",
       "elasticloadbalancing:DescribeListeners",
       "elasticloadbalancing:DescribeTargetGroups",
       "elasticloadbalancing:DescribeTargetHealth",

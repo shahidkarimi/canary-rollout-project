@@ -102,8 +102,9 @@ func main() {
 				id = newID()
 			}
 		}
+		// Set on the request only; ModifyResponse echoes it onto the response
+		// (setting it here too would duplicate the header).
 		r.Header.Set(requestIDHeader, id)
-		w.Header().Set(requestIDHeader, id)
 
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: 200}
