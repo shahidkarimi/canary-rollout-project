@@ -1,0 +1,15 @@
+docs/assignment.pdf
+.DS_Store
+
+# terraform
+.terraform/
+.terraform-dev/
+.terraform-prod/
+*.tfplan
+tfplan
+*.tfstate*
+infra/global/rotation/handler.zip
+
+# build artifacts
+revision.zip
+sbom.spdx.json

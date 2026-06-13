@@ -1,0 +1,172 @@
+# Reusable dual-target deploy: called once per environment by pipeline.yml.
+# The policy gate rejects any digest not keylessly signed by this repo's
+# pipeline on main; both targets then canary via CodeDeploy with automatic
+# rollback on alarms, and smoke/synthetic checks gate success.
+name: deploy
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        required: true
+        type: string
+      digest:
+        required: true
+        type: string
+      chaos:
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 767911972289.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPO: canary/podinfo
+  REVISIONS_BUCKET: canary-rollout-revisions-767911972289
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.env }}
+    env:
+      DEPLOY_ENV: ${{ inputs.env }}
+      DIGEST: ${{ inputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC, deploy role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::767911972289:role/canary-ci-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: "Policy gate: only signed digests deploy"
+        run: |
+          cosign verify \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/\.github/workflows/pipeline\.yml@refs/heads/main$" \
+            "${ECR_REGISTRY}/${ECR_REPO}@${DIGEST}"
+          echo "POLICY GATE PASS: ${DIGEST} carries a valid keyless signature from this repo's pipeline on main"
+
+      - name: "Lambda: publish version from digest"
+        id: lambda-version
+        run: |
+          FN="canary-${DEPLOY_ENV}-podinfo"
+          CURRENT=$(aws lambda get-alias --function-name "$FN" --name live --query FunctionVersion --output text)
+          aws lambda update-function-code --function-name "$FN" \
+            --image-uri "${ECR_REGISTRY}/${ECR_REPO}@${DIGEST}" >/dev/null
+          aws lambda wait function-updated-v2 --function-name "$FN"
+          TARGET=$(aws lambda publish-version --function-name "$FN" --query Version --output text)
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "Lambda $FN: alias live v$CURRENT -> v$TARGET"
+
+      - name: "Lambda: start CodeDeploy canary (10%/5min)"
+        id: lambda-deploy
+        if: steps.lambda-version.outputs.current != steps.lambda-version.outputs.target
+        run: |
+          cat > appspec.json <<EOF
+          {
+            "version": 0.0,
+            "Resources": [{
+              "podinfo": {
+                "Type": "AWS::Lambda::Function",
+                "Properties": {
+                  "Name": "canary-${DEPLOY_ENV}-podinfo",
+                  "Alias": "live",
+                  "CurrentVersion": "${{ steps.lambda-version.outputs.current }}",
+                  "TargetVersion": "${{ steps.lambda-version.outputs.target }}"
+                }
+              }
+            }]
+          }
+          EOF
+          ID=$(aws deploy create-deployment \
+            --application-name "canary-${DEPLOY_ENV}-lambda" \
+            --deployment-group-name "canary-${DEPLOY_ENV}-lambda-dg" \
+            --revision "revisionType=AppSpecContent,appSpecContent={content='$(cat appspec.json | tr -d '\n')'}" \
+            --query deploymentId --output text)
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          echo "Lambda CodeDeploy deployment: $ID"
+
+      - name: "EC2: package and start CodeDeploy canary (10%/2min)"
+        id: ec2-deploy
+        run: |
+          mkdir -p bundle
+          cp scripts/codedeploy/appspec.yml bundle/
+          cp -r scripts/codedeploy/hooks bundle/
+          chmod +x bundle/hooks/*.sh
+          echo "${DIGEST}" > bundle/image-digest.txt
+          echo "${DEPLOY_ENV}" > bundle/deploy-env.txt
+          (cd bundle && zip -qr ../revision.zip .)
+          KEY="${DEPLOY_ENV}/revision-${{ github.run_id }}-${{ github.run_attempt }}.zip"
+          aws s3 cp revision.zip "s3://${REVISIONS_BUCKET}/${KEY}"
+          ID=$(aws deploy create-deployment \
+            --application-name "canary-${DEPLOY_ENV}-ec2" \
+            --deployment-group-name "canary-${DEPLOY_ENV}-ec2-dg" \
+            --s3-location "bucket=${REVISIONS_BUCKET},key=${KEY},bundleType=zip" \
+            --query deploymentId --output text)
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          echo "EC2 CodeDeploy deployment: $ID"
+
+      - name: Discover front doors
+        id: urls
+        run: |
+          ALB=$(aws elbv2 describe-load-balancers --names "canary-${DEPLOY_ENV}-alb" \
+            --query 'LoadBalancers[0].DNSName' --output text)
+          API=$(aws apigatewayv2 get-apis \
+            --query "Items[?Name=='canary-${DEPLOY_ENV}-podinfo'].ApiEndpoint" --output text)
+          echo "alb=https://${ALB}" >> "$GITHUB_OUTPUT"
+          echo "api=${API}" >> "$GITHUB_OUTPUT"
+
+      - name: "Chaos: synthetic 5xx during canary (rollback demo)"
+        if: inputs.chaos
+        run: |
+          echo "Injecting /status/500 traffic against both front doors for 3 minutes"
+          nohup bash -c 'for i in $(seq 1 90); do
+            curl -ksS -o /dev/null "${{ steps.urls.outputs.alb }}/status/500" || true
+            curl -ksS -o /dev/null "${{ steps.urls.outputs.api }}/status/500" || true
+            sleep 2
+          done' > chaos.log 2>&1 &
+
+      - name: "Wait: Lambda canary"
+        if: steps.lambda-deploy.outputs.id != ''
+        run: |
+          aws deploy wait deployment-successful --deployment-id "${{ steps.lambda-deploy.outputs.id }}" \
+            || { aws deploy get-deployment --deployment-id "${{ steps.lambda-deploy.outputs.id }}" \
+                   --query 'deploymentInfo.{status:status,error:errorInformation}' ; exit 1; }
+          echo "Lambda canary complete"
+
+      - name: "Wait: EC2 canary"
+        run: |
+          aws deploy wait deployment-successful --deployment-id "${{ steps.ec2-deploy.outputs.id }}" \
+            || { aws deploy get-deployment --deployment-id "${{ steps.ec2-deploy.outputs.id }}" \
+                   --query 'deploymentInfo.{status:status,error:errorInformation}' ; exit 1; }
+          echo "EC2 canary complete"
+
+      - name: Smoke + synthetic checks (both front doors)
+        run: |
+          scripts/smoke.sh "${{ steps.urls.outputs.api }}" "lambda-${DEPLOY_ENV}"
+          scripts/smoke.sh "${{ steps.urls.outputs.alb }}" "ec2-${DEPLOY_ENV}"
+
+      - name: Deploy summary
+        if: always()
+        run: |
+          {
+            echo "## Deploy ${DEPLOY_ENV}"
+            echo "- Digest: \`${DIGEST}\`"
+            echo "- Lambda deployment: ${{ steps.lambda-deploy.outputs.id || 'skipped (no code change)' }}"
+            echo "- EC2 deployment: ${{ steps.ec2-deploy.outputs.id }}"
+            echo "- API GW: ${{ steps.urls.outputs.api }}"
+            echo "- ALB: ${{ steps.urls.outputs.alb }}"
+          } >> "$GITHUB_STEP_SUMMARY"

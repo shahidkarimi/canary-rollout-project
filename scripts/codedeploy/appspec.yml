@@ -1,0 +1,15 @@
+version: 0.0
+os: linux
+files:
+  - source: /
+    destination: /opt/canary/deploy
+file_exists_behavior: OVERWRITE
+hooks:
+  AfterInstall:
+    - location: hooks/install_green.sh
+      timeout: 300
+      runas: root
+  ValidateService:
+    - location: hooks/validate_and_shift.sh
+      timeout: 900
+      runas: root

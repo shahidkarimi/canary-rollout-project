@@ -1,0 +1,130 @@
+# Single pipeline, dual targets, two environments:
+#   build (test, build, sign, SBOM, push) -> deploy dev (Lambda + EC2 canary)
+#   -> [human approval via the prod environment] -> deploy prod, same digest.
+name: pipeline
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+  workflow_dispatch:
+    inputs:
+      chaos:
+        description: "Inject synthetic 5xx during the dev canary to demo automatic rollback"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 767911972289.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPO: canary/podinfo
+  PODINFO_VERSION: 6.13.0
+  PODINFO_COMMIT: 1ec15a1a349f4fc69de5af0e500c672c15c1d448
+
+concurrency:
+  group: pipeline
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out podinfo at pinned commit
+        run: |
+          git clone --depth 1 --branch "$PODINFO_VERSION" https://github.com/stefanprodan/podinfo.git /tmp/podinfo
+          ACTUAL=$(git -C /tmp/podinfo rev-parse HEAD)
+          [ "$ACTUAL" = "$PODINFO_COMMIT" ] || { echo "pinned commit mismatch: $ACTUAL"; exit 1; }
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: /tmp/podinfo/go.mod
+          cache-dependency-path: /tmp/podinfo/go.sum
+
+      - name: Test podinfo
+        run: cd /tmp/podinfo && go test ./...
+
+      - name: Configure AWS credentials (OIDC, build role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::767911972289:role/canary-ci-build
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: app
+          push: true
+          provenance: false
+          tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:sha-${{ github.sha }}-run-${{ github.run_id }}
+          build-args: |
+            PODINFO_VERSION=${{ env.PODINFO_VERSION }}
+            PODINFO_COMMIT=${{ env.PODINFO_COMMIT }}
+        env:
+          SOURCE_DATE_EPOCH: 0
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless, GitHub OIDC)
+        run: cosign sign --yes "${ECR_REGISTRY}/${ECR_REPO}@${{ steps.push.outputs.digest }}"
+
+      - name: Generate SBOM (syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}@${{ steps.push.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+
+      - name: Attest SBOM (cosign)
+        run: |
+          cosign attest --yes --type spdxjson \
+            --predicate sbom.spdx.json \
+            "${ECR_REGISTRY}/${ECR_REPO}@${{ steps.push.outputs.digest }}"
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.run_id }}
+          path: sbom.spdx.json
+
+      - name: Build summary
+        run: |
+          {
+            echo "## Build artifact"
+            echo "- **Digest**: \`${{ steps.push.outputs.digest }}\`"
+            echo "- **Image**: \`${ECR_REGISTRY}/${ECR_REPO}@${{ steps.push.outputs.digest }}\`"
+            echo "- Signed (cosign keyless) + SBOM attested (spdxjson)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-dev:
+    needs: build
+    uses: ./.github/workflows/deploy.yml
+    with:
+      env: dev
+      digest: ${{ needs.build.outputs.digest }}
+      chaos: ${{ github.event_name == 'workflow_dispatch' && inputs.chaos }}
+
+  deploy-prod:
+    needs: [build, deploy-dev]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      env: prod # the prod GitHub environment requires reviewer approval
+      digest: ${{ needs.build.outputs.digest }}
+      chaos: false
