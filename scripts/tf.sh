@@ -14,6 +14,12 @@ shift 2
 DIR="$(cd "$(dirname "$0")/../infra/${STACK}" && pwd)"
 cd "${DIR}"
 
+# Backend bucket is derived from the caller's own account + region (same formula as
+# scripts/bootstrap.sh), so this repo works in any AWS account with no edits.
+ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+REGION="${AWS_REGION:-eu-north-1}"
+STATE_BUCKET="canary-rollout-tfstate-${ACCOUNT_ID}-${REGION}"
+
 if [[ "${STACK}" == "global" || "${STACK}" == "observability" ]]; then
   KEY="${STACK}/terraform.tfstate"
   ENV_ARGS=()
@@ -26,7 +32,9 @@ else
   export TF_DATA_DIR=".terraform-${ENV}"
 fi
 
-terraform init -input=false -reconfigure -backend-config="key=${KEY}" >/dev/null
+terraform init -input=false -reconfigure \
+  -backend-config="bucket=${STATE_BUCKET}" \
+  -backend-config="key=${KEY}" >/dev/null
 
 CMD="${1:-}"
 case "${CMD}" in

@@ -7,7 +7,7 @@
 set -euo pipefail
 
 ENV="${1:?env required (dev|prod)}"
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-eu-north-1}"
 SECRET_ID="/dockyard/SUPER_SECRET_TOKEN"
 NAME="canary-${ENV}"
 

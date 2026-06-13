@@ -1,6 +1,6 @@
 variable "region" {
   type    = string
-  default = "us-east-1"
+  default = "eu-north-1"
 }
 
 variable "project" {
@@ -24,8 +24,11 @@ variable "provisioned_concurrency" {
   default     = 0
 }
 
+data "aws_caller_identity" "current" {}
+
 locals {
-  name       = "${var.project}-${var.env}"
-  global     = data.terraform_remote_state.global.outputs
-  secret_arn = local.global.secret_arn
+  name         = "${var.project}-${var.env}"
+  global       = data.terraform_remote_state.global.outputs
+  secret_arn   = local.global.secret_arn
+  state_bucket = "canary-rollout-tfstate-${data.aws_caller_identity.current.account_id}-${var.region}"
 }

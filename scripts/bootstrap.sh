@@ -3,7 +3,7 @@
 # Idempotent: safe to re-run; every step checks before it creates.
 set -euo pipefail
 
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-eu-north-1}"
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 STATE_BUCKET="canary-rollout-tfstate-${ACCOUNT_ID}-${REGION}"
 LOCK_TABLE="canary-rollout-tf-lock"

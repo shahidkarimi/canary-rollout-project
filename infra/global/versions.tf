@@ -16,10 +16,10 @@ terraform {
     }
   }
 
+  # bucket supplied at init by scripts/tf.sh (derived from the caller's account)
   backend "s3" {
-    bucket         = "canary-rollout-tfstate-767911972289-us-east-1"
     key            = "global/terraform.tfstate"
-    region         = "us-east-1"
+    region         = "eu-north-1"
     dynamodb_table = "canary-rollout-tf-lock"
     encrypt        = true
   }

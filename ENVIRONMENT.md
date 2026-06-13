@@ -17,23 +17,32 @@ else in the repo.**
 
 ## Region & account
 
-- Region: `us-east-1` (single region; multi-region plan in `docs/SCALING.md`)
-- AWS account: `767911972289`
+The stack is account-agnostic: it deploys into whatever account the running
+AWS credentials belong to. `<account-id>` below is resolved at runtime from
+`aws sts get-caller-identity` (Terraform/scripts) or from the
+`AWS_ACCOUNT_ID` GitHub variable (CI). No account is hardcoded.
+
+- Region: `eu-north-1` by default (override with `AWS_REGION`; multi-region plan in `docs/SCALING.md`)
+- AWS account: `<account-id>` (the caller's own account)
 - Environments: `dev`, `prod` — same account, isolated by name prefix
   (`canary-dev-*` / `canary-prod-*`) and separate Terraform state keys.
 
 ## Terraform state
 
-- Bucket: `canary-rollout-tfstate-767911972289-us-east-1` (versioned, encrypted)
+- Bucket: `canary-rollout-tfstate-<account-id>-<region>` (versioned, encrypted) —
+  created by `scripts/bootstrap.sh`, injected at `init` by `scripts/tf.sh`
 - Lock table: `canary-rollout-tf-lock`
 - Keys: `global/`, `lambda/<env>/`, `ec2/<env>/`, `observability/` + `terraform.tfstate`
 
 ## CI identities (OIDC, no static keys)
 
+The GitHub repo trusted by these roles is the Terraform variable `github_repo`
+(set it to the client's `owner/repo`).
+
 | Role | ARN | Trusted GitHub subject |
 | ---- | --- | ---------------------- |
-| Build | `arn:aws:iam::767911972289:role/canary-ci-build` | `repo:shahidkarimi/canary-rollout-project:ref:refs/heads/main` |
-| Deploy | `arn:aws:iam::767911972289:role/canary-ci-deploy` | `repo:shahidkarimi/canary-rollout-project:environment:dev\|prod` |
+| Build | `arn:aws:iam::<account-id>:role/canary-ci-build` | `repo:<github_repo>:ref:refs/heads/main` |
+| Deploy | `arn:aws:iam::<account-id>:role/canary-ci-deploy` | `repo:<github_repo>:environment:dev\|prod` |
 
 ## Key resources
 
@@ -43,7 +52,7 @@ else in the repo.**
 | Secret | `/dockyard/SUPER_SECRET_TOKEN` (KMS CMK `alias/canary-rollout`, 30-day rotation) |
 | Rotation function | `canary-secret-rotation` |
 | SNS alarms topic | `canary-rollout-alarms` |
-| Revisions bucket | `canary-rollout-revisions-767911972289` |
+| Revisions bucket | `canary-rollout-revisions-<account-id>` |
 | Dashboard | `canary-rollout` |
 | Log redaction | account-level CloudWatch Logs data protection policy `canary-redact-secret-token` (masks `dkyd_[A-Za-z0-9]{32}`) |
 
@@ -63,6 +72,15 @@ else in the repo.**
 
 ## Pipeline variables
 
-All non-secret and defined in the workflow `env:` blocks (account id, region,
-registry, repo, podinfo pin). GitHub environments `dev` and `prod` gate the
-deploy jobs; `prod` requires reviewer approval. No GitHub secrets are required.
+The workflows read the target account and region from GitHub **repository
+variables** (Settings → Secrets and variables → Actions → Variables) so the
+same workflows run in any account with no edits:
+
+| Variable | Example | Used for |
+| -------- | ------- | -------- |
+| `AWS_ACCOUNT_ID` | `123456789012` | OIDC role ARNs, ECR registry, revisions bucket |
+| `AWS_REGION` | `eu-north-1` | region for all CI AWS calls |
+
+Everything else (registry path, repo, podinfo pin) is derived in the workflow
+`env:` blocks. GitHub environments `dev` and `prod` gate the deploy jobs;
+`prod` requires reviewer approval. No GitHub **secrets** are required.

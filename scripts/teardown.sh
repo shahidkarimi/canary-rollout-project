@@ -6,7 +6,7 @@
 #   scripts/teardown.sh [--all]
 set -euo pipefail
 
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-eu-north-1}"
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 STATE_BUCKET="canary-rollout-tfstate-${ACCOUNT_ID}-${REGION}"
 LOCK_TABLE="canary-rollout-tf-lock"
@@ -38,14 +38,15 @@ destroy global -
 if [[ "${1:-}" == "--all" ]]; then
   echo ">> removing Terraform state backend"
   if aws s3api head-bucket --bucket "$STATE_BUCKET" 2>/dev/null; then
-    # delete all versions (bucket is versioned), then the bucket
+    # delete all versions AND delete markers (bucket is versioned), then the bucket
     aws s3api list-object-versions --bucket "$STATE_BUCKET" \
-      --query '{Objects: [].{Key:Key,VersionId:VersionId}}' \
       --output json --no-paginate 2>/dev/null \
       | python3 -c '
 import sys, json, subprocess
 data = json.load(sys.stdin)
-objs = [o for o in (data.get("Objects") or []) if o.get("Key")]
+objs = [{"Key": o["Key"], "VersionId": o["VersionId"]}
+        for o in (data.get("Versions") or []) + (data.get("DeleteMarkers") or [])
+        if o.get("Key")]
 for i in range(0, len(objs), 500):
     batch = {"Objects": objs[i:i+500], "Quiet": True}
     subprocess.run(["aws", "s3api", "delete-objects", "--bucket", sys.argv[1],

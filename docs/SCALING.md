@@ -39,7 +39,7 @@ that warms the target version before the shift.
 
 ## Multi-region active/active plan
 
-Target shape: two regions (us-east-1 + eu-west-1), each running the full
+Target shape: two regions (eu-north-1 + eu-west-1), each running the full
 per-env stack (Lambda+API GW, EC2/ALB), fronted by Route 53.
 
 - **Routing**: Route 53 weighted records (active/active) with health checks

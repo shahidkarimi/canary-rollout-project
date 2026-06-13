@@ -12,10 +12,9 @@ terraform {
     }
   }
 
-  # key supplied per env by scripts/tf.sh: lambda/<env>/terraform.tfstate
+  # bucket + key supplied at init by scripts/tf.sh (key: lambda/<env>/terraform.tfstate)
   backend "s3" {
-    bucket         = "canary-rollout-tfstate-767911972289-us-east-1"
-    region         = "us-east-1"
+    region         = "eu-north-1"
     dynamodb_table = "canary-rollout-tf-lock"
     encrypt        = true
   }
@@ -37,8 +36,8 @@ provider "aws" {
 data "terraform_remote_state" "global" {
   backend = "s3"
   config = {
-    bucket = "canary-rollout-tfstate-767911972289-us-east-1"
+    bucket = local.state_bucket
     key    = "global/terraform.tfstate"
-    region = "us-east-1"
+    region = "eu-north-1"
   }
 }

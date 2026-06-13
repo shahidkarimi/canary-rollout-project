@@ -1,6 +1,6 @@
 variable "region" {
   type    = string
-  default = "us-east-1"
+  default = "eu-north-1"
 }
 
 variable "project" {
@@ -46,9 +46,12 @@ variable "alb_requests_per_target_target" {
   default     = 60
 }
 
+data "aws_caller_identity" "current" {}
+
 locals {
-  name   = "${var.project}-${var.env}"
-  global = data.terraform_remote_state.global.outputs
+  name         = "${var.project}-${var.env}"
+  global       = data.terraform_remote_state.global.outputs
+  state_bucket = "canary-rollout-tfstate-${data.aws_caller_identity.current.account_id}-${var.region}"
 
   blue_port  = 9898
   green_port = 9899

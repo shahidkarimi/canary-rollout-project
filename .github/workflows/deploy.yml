@@ -23,10 +23,10 @@ permissions:
   contents: read
 
 env:
-  AWS_REGION: us-east-1
-  ECR_REGISTRY: 767911972289.dkr.ecr.us-east-1.amazonaws.com
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REGISTRY: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
   ECR_REPO: canary/podinfo
-  REVISIONS_BUCKET: canary-rollout-revisions-767911972289
+  REVISIONS_BUCKET: canary-rollout-revisions-${{ vars.AWS_ACCOUNT_ID }}
 
 jobs:
   deploy:
@@ -41,7 +41,7 @@ jobs:
       - name: Configure AWS credentials (OIDC, deploy role)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::767911972289:role/canary-ci-deploy
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/canary-ci-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to ECR

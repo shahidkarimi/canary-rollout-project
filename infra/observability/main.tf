@@ -8,10 +8,10 @@ terraform {
     }
   }
 
+  # bucket supplied at init by scripts/tf.sh (derived from the caller's account)
   backend "s3" {
-    bucket         = "canary-rollout-tfstate-767911972289-us-east-1"
     key            = "observability/terraform.tfstate"
-    region         = "us-east-1"
+    region         = "eu-north-1"
     dynamodb_table = "canary-rollout-tf-lock"
     encrypt        = true
   }
@@ -31,7 +31,7 @@ provider "aws" {
 
 variable "region" {
   type    = string
-  default = "us-east-1"
+  default = "eu-north-1"
 }
 
 variable "project" {
@@ -45,13 +45,19 @@ variable "envs" {
   default     = ["dev"]
 }
 
+data "aws_caller_identity" "current" {}
+
+locals {
+  state_bucket = "canary-rollout-tfstate-${data.aws_caller_identity.current.account_id}-${var.region}"
+}
+
 data "terraform_remote_state" "lambda" {
   for_each = toset(var.envs)
   backend  = "s3"
   config = {
-    bucket = "canary-rollout-tfstate-767911972289-us-east-1"
+    bucket = local.state_bucket
     key    = "lambda/${each.value}/terraform.tfstate"
-    region = "us-east-1"
+    region = "eu-north-1"
   }
 }
 
@@ -59,9 +65,9 @@ data "terraform_remote_state" "ec2" {
   for_each = toset(var.envs)
   backend  = "s3"
   config = {
-    bucket = "canary-rollout-tfstate-767911972289-us-east-1"
+    bucket = local.state_bucket
     key    = "ec2/${each.value}/terraform.tfstate"
-    region = "us-east-1"
+    region = "eu-north-1"
   }
 }
 

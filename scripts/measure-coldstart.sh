@@ -12,7 +12,7 @@ set -euo pipefail
 
 ENV="${1:?env required (dev|prod)}"
 BURST="${2:-5}"
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-eu-north-1}"
 FN="canary-${ENV}-podinfo"
 LOG_GROUP="/aws/lambda/${FN}"
 
