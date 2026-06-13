@@ -81,7 +81,7 @@ Prereqs: AWS CLI with admin credentials, `tfenv`, `gh` (authenticated), Git.
 
 ```bash
 scripts/bootstrap.sh                      # state bucket + lock table (idempotent)
-tfenv install                             # respects .terraform-version
+tfenv install                             # resp0cts .terraform-version
 scripts/tf.sh global -    apply           # ECR, OIDC roles, KMS, SNS, secret+rotation, redaction
 scripts/tf.sh ec2    dev  apply           # VPC, ALB, ASG, CodeDeploy
 git push origin main                      # first pipeline run pushes the first image
