@@ -9,7 +9,7 @@ else in the repo.**
 | ----------------------- | -------- | ----------------------------------------- |
 | Terraform               | 1.15.6   | `.terraform-version` (tfenv)              |
 | AWS provider            | ~> 6.0   | `infra/*/versions.tf` + lock files        |
-| Podinfo                 | 6.13.0 (`1ec15a1a349f…`) | `app/Dockerfile`, `pipeline.yml` |
+| Podinfo                 | 6.13.0 (`875ffa943136…`) | `app/Dockerfile`, `pipeline.yml` |
 | Go (builder)            | 1.26-alpine, by digest | `app/Dockerfile`            |
 | AWS Lambda Web Adapter  | 1.0.1, by digest | `app/Dockerfile`                  |
 | Runtime base            | distroless/static-debian12:nonroot, by digest | `app/Dockerfile` |

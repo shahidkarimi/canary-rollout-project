@@ -10,7 +10,7 @@
 # SOURCE_DATE_EPOCH (set by the pipeline from the podinfo commit date).
 
 ARG PODINFO_VERSION=6.13.0
-ARG PODINFO_COMMIT=1ec15a1a349f4fc69de5af0e500c672c15c1d448
+ARG PODINFO_COMMIT=875ffa9431368708aef7fb968a4cc369a72884ad
 
 FROM public.ecr.aws/awsguru/aws-lambda-adapter:1.0.1@sha256:1e5ab4d9242167500ed8a7bed8a79b448228aaa51cf382fb51fe4bf8a5f9a811 AS lwa
 
