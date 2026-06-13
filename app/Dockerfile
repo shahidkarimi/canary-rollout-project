@@ -26,6 +26,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
     -ldflags "-s -w -X github.com/stefanprodan/podinfo/pkg/version.REVISION=${PODINFO_COMMIT}" \
     -a -o /out/podinfo ./cmd/podinfo
 
+# secret-fp extension: logs secret fingerprint+version in Lambda, inert on EC2
+COPY secret-extension /ext
+RUN cd /ext && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/secret-fp .
+
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:d093aa3e30dbadd3efe1310db061a14da60299baff8450a17fe0ccc514a16639
 ARG PODINFO_VERSION
 ARG PODINFO_COMMIT
@@ -35,6 +39,7 @@ LABEL org.opencontainers.image.title="podinfo" \
       org.opencontainers.image.source="https://github.com/shahidkarimi/canary-rollout-project"
 
 COPY --from=lwa /lambda-adapter /opt/extensions/lambda-adapter
+COPY --from=build /out/secret-fp /opt/extensions/secret-fp
 WORKDIR /home/app
 COPY --from=build /out/podinfo ./podinfo
 COPY --from=build /src/ui ./ui

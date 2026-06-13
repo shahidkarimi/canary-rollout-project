@@ -1,0 +1,46 @@
+flowchart TB
+    subgraph GH["GitHub Actions (OIDC → AWS, no static keys)"]
+        BUILD["build<br/>test podinfo @6.13.0 · buildx (pinned digests)<br/>cosign sign (keyless) · syft SBOM + attest"]
+        DEVGATE["deploy dev<br/>policy gate: cosign verify digest"]
+        APPROVE{{"prod environment<br/>human approval"}}
+        PRODGATE["deploy prod<br/>same digest · policy gate again"]
+        BUILD -->|"immutable digest"| DEVGATE --> APPROVE --> PRODGATE
+    end
+
+    ECR[("ECR canary/podinfo<br/>immutable tags · scan · KMS")]
+    BUILD -->|push| ECR
+
+    subgraph ENV["per environment (dev, then prod)"]
+        direction TB
+        subgraph LAMBDA["Lambda target"]
+            APIGW["API GW HTTP API<br/>access logs + requestId"]
+            FN["Lambda (container image)<br/>podinfo + LWA + secret-fp ext"]
+            ALIAS["alias live"]
+            CDL["CodeDeploy canary<br/>10% / 5 min"]
+            APIGW --> ALIAS --> FN
+            CDL -.->|"shift / rollback"| ALIAS
+        end
+        subgraph EC2["EC2 target"]
+            ALB["ALB :443 (HTTPS)<br/>weighted forward"]
+            BLUE["blue TG :9898<br/>podinfo on host 1+2"]
+            GREEN["green TG :9899<br/>podinfo on host 1+2"]
+            CDE["CodeDeploy + hooks<br/>10% / 2 min weighted shift"]
+            ALB -->|"90→0%"| BLUE
+            ALB -->|"10→100%"| GREEN
+            CDE -.->|"set weights"| ALB
+        end
+    end
+
+    DEVGATE --> CDL
+    DEVGATE --> CDE
+    ECR -->|"pull by digest"| FN
+    ECR -->|"pull by digest"| BLUE & GREEN
+
+    subgraph OBS["observability & safety"]
+        ALARMS["CloudWatch alarms<br/>fn errors · apigw 5xx · alb 5xx · p99 RT"]
+        DASH["dashboard canary-rollout<br/>canary split · latency · errors · hosts"]
+        SM["Secrets Manager<br/>/dockyard/SUPER_SECRET_TOKEN<br/>30-day rotation · log redaction"]
+    end
+
+    ALARMS -.->|"auto rollback"| CDL & CDE
+    FN & BLUE & GREEN -.->|"fingerprint only"| SM
