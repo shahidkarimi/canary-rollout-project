@@ -12,7 +12,7 @@ else in the repo.**
 | Podinfo                 | 6.13.0 (`875ffa943136…`) | `app/Dockerfile`, `pipeline.yml` |
 | Go (builder)            | 1.26-alpine, by digest | `app/Dockerfile`            |
 | AWS Lambda Web Adapter  | 1.0.1, by digest | `app/Dockerfile`                  |
-| Runtime base            | distroless/static-debian12:nonroot, by digest | `app/Dockerfile` |
+| Runtime base            | alpine:3.23, by digest (non-root) | `app/Dockerfile` |
 | CodeDeploy agent        | latest (host install at boot) | `infra/ec2/user_data.sh.tpl` |
 
 ## Region & account
