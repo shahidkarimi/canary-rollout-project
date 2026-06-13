@@ -1,10 +1,18 @@
 # ---------------------------------------------------------------------------
-# Lambda from the ECR image (most recent at first apply; afterwards the
-# pipeline owns code updates and CodeDeploy owns the alias -> ignore_changes).
+# Lambda from the ECR image. On first apply we pick the newest *real* image
+# (cosign .sig/.att artifacts would otherwise win "most recent"); afterwards
+# the pipeline owns code updates and CodeDeploy owns the alias (ignore_changes).
 # ---------------------------------------------------------------------------
-data "aws_ecr_image" "latest" {
-  repository_name = "${var.project}/podinfo"
-  most_recent     = true
+data "external" "latest_image" {
+  program = ["bash", "${path.module}/latest-image.sh"]
+  query = {
+    repo   = "${var.project}/podinfo"
+    region = var.region
+  }
+}
+
+locals {
+  image_digest = data.external.latest_image.result.digest
 }
 
 data "aws_iam_policy_document" "lambda_trust" {
@@ -54,7 +62,7 @@ resource "aws_lambda_function" "podinfo" {
   function_name = "${local.name}-podinfo"
   role          = aws_iam_role.exec.arn
   package_type  = "Image"
-  image_uri     = "${local.global.ecr_repository_url}@${data.aws_ecr_image.latest.image_digest}"
+  image_uri     = "${local.global.ecr_repository_url}@${local.image_digest}"
   architectures = ["x86_64"]
   memory_size   = 256
   timeout       = 10

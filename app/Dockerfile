@@ -30,6 +30,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
 COPY secret-extension /ext
 RUN cd /ext && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/secret-fp .
 
+# corrproxy: correlation-ID front for podinfo (stdlib only)
+COPY corrproxy /proxy
+RUN cd /proxy && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/corrproxy .
+
 # Alpine (same family podinfo ships upstream): minimal, non-root, and accepted
 # by Lambda's image loader. The distroless static base produced layers Lambda
 # rejected with UnsupportedImageLayerDetected, regardless of compression.
@@ -49,13 +53,16 @@ COPY --from=lwa /lambda-adapter /opt/extensions/lambda-adapter
 COPY --from=build /out/secret-fp /opt/extensions/secret-fp
 WORKDIR /home/app
 COPY --from=build /out/podinfo ./podinfo
+COPY --from=build /out/corrproxy ./corrproxy
 COPY --from=build /src/ui ./ui
 
-# Adapter -> podinfo wiring (ignored outside Lambda)
-ENV AWS_LWA_PORT=9898 \
+# corrproxy listens on 9898 (public) and runs podinfo on 8080 (internal).
+ENV PORT=9898 \
+    PODINFO_PORT=8080 \
+    AWS_LWA_PORT=9898 \
     AWS_LWA_READINESS_CHECK_PATH=/healthz \
     AWS_LWA_INVOKE_MODE=buffered
 
 EXPOSE 9898
 USER app
-ENTRYPOINT ["/home/app/podinfo"]
+ENTRYPOINT ["/home/app/corrproxy"]

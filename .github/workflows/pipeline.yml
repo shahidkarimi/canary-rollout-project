@@ -69,13 +69,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: app
+          push: true
+          # No provenance/SBOM attestation manifests: keeps the pushed digest a
+          # plain image (the cosign step attaches the SBOM separately).
           provenance: false
           sbom: false
           tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:sha-${{ github.sha }}-run-${{ github.run_id }}
-          # Lambda's image loader rejects some BuildKit/distroless base layers
-          # (UnsupportedImageLayerDetected). Re-export every layer as plain
-          # Docker-v2 gzip and drop the attestation manifest list.
-          outputs: type=image,push=true,oci-mediatypes=false,force-compression=true,compression=gzip
           build-args: |
             PODINFO_VERSION=${{ env.PODINFO_VERSION }}
             PODINFO_COMMIT=${{ env.PODINFO_COMMIT }}
