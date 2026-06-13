@@ -12,9 +12,16 @@ fail() { echo "SMOKE FAIL [${LABEL}] $*"; exit 1; }
 
 echo "== smoke [${LABEL}] ${BASE}"
 
-# 1. health
-CODE=$("${CURL[@]}" -o /dev/null -w '%{http_code}' "${BASE}/healthz")
-[[ "${CODE}" =~ ^[23] ]] || fail "/healthz returned ${CODE}"
+# 1. health, with retries: a just-shifted Lambda version or a freshly
+#    registered target can cold-start past a single request's timeout.
+CODE=000
+for attempt in $(seq 1 12); do
+  CODE=$("${CURL[@]}" -o /dev/null -w '%{http_code}' "${BASE}/healthz" || echo 000)
+  [[ "${CODE}" =~ ^[23] ]] && break
+  echo "   /healthz attempt ${attempt}: ${CODE}, retrying..."
+  sleep 5
+done
+[[ "${CODE}" =~ ^[23] ]] || fail "/healthz returned ${CODE} after retries"
 echo "   /healthz ${CODE}"
 
 # 2. root + correlation ID
