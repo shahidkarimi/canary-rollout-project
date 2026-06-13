@@ -22,12 +22,13 @@ ec2_fingerprint() {
 }
 
 lambda_fingerprint() {
-  # Latest fingerprint logged by the secret-fp extension.
+  # Latest fingerprint logged by the secret-fp extension (substring filter:
+  # Lambda's log framing isn't matched by JSON metric-filter syntax).
   aws logs filter-log-events --region "$REGION" --log-group-name "$LOG_GROUP" \
-    --filter-pattern '{ $.extension = "secret-fp" && $.fingerprint = "*" }' \
+    --filter-pattern '"secret-fp"' \
     --start-time $(( ($(date +%s) - 900) * 1000 )) \
-    --query 'events[-1].message' --output text 2>/dev/null \
-    | grep -o '"fingerprint":"[a-f0-9]*"' | cut -d'"' -f4 || true
+    --query 'events[*].message' --output text 2>/dev/null \
+    | grep -o '"fingerprint":"[a-f0-9]*"' | tail -1 | cut -d'"' -f4 || true
 }
 
 health() {

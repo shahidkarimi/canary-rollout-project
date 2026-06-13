@@ -154,10 +154,12 @@ resource "aws_launch_template" "podinfo" {
 }
 
 resource "aws_autoscaling_group" "podinfo" {
-  name                = "${local.name}-asg"
-  min_size            = 2
-  max_size            = 2
-  desired_capacity    = 2
+  name             = "${local.name}-asg"
+  min_size         = 2
+  desired_capacity = 2
+  # Baseline is exactly 2; only the target-tracking policy (prod) raises the
+  # ceiling so the fleet can surge under load and then drain back to 2.
+  max_size            = var.enable_autoscaling ? var.max_instances : 2
   vpc_zone_identifier = aws_subnet.public[*].id
 
   # Instances live in both TGs permanently; the listener's weighted forward
@@ -186,6 +188,34 @@ resource "aws_autoscaling_group" "podinfo" {
     preferences {
       min_healthy_percentage = 50
     }
+  }
+
+  lifecycle {
+    # Target tracking adjusts desired_capacity at runtime; don't revert it.
+    ignore_changes = [desired_capacity]
+  }
+}
+
+# Implemented scalability improvement (prod): target-track ALB requests per
+# target. Baseline 2 instances; surge toward max_instances when sustained
+# load pushes per-target request rate above the setpoint, then drain back.
+# Safe surge/drain: new instances get a 120s warmup before counting toward the
+# metric; removed instances drain via the target group's deregistration delay.
+resource "aws_autoscaling_policy" "alb_request_tracking" {
+  count                     = var.enable_autoscaling ? 1 : 0
+  name                      = "${local.name}-alb-req-target-tracking"
+  autoscaling_group_name    = aws_autoscaling_group.podinfo.name
+  policy_type               = "TargetTrackingScaling"
+  estimated_instance_warmup = 120
+
+  target_tracking_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ALBRequestCountPerTarget"
+      # Steady-state active color after a normal deploy is blue (100% weight).
+      resource_label = "${aws_lb.main.arn_suffix}/${aws_lb_target_group.blue.arn_suffix}"
+    }
+    target_value     = var.alb_requests_per_target_target
+    disable_scale_in = false
   }
 }
 

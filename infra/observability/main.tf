@@ -66,6 +66,19 @@ data "terraform_remote_state" "ec2" {
 }
 
 locals {
+  # Resolve upstream outputs defensively: during teardown an env's lambda/ec2
+  # state may still exist but be emptied (resources already destroyed, no
+  # outputs). try() lets the dashboard config still evaluate so this stack can
+  # be planned/destroyed instead of erroring on a missing attribute.
+  refs = { for env in var.envs : env => {
+    function_name       = try(data.terraform_remote_state.lambda[env].outputs.function_name, "")
+    api_id              = try(data.terraform_remote_state.lambda[env].outputs.api_id, "")
+    alb_arn_suffix      = try(data.terraform_remote_state.ec2[env].outputs.alb_arn_suffix, "")
+    blue_tg_arn_suffix  = try(data.terraform_remote_state.ec2[env].outputs.blue_tg_arn_suffix, "")
+    green_tg_arn_suffix = try(data.terraform_remote_state.ec2[env].outputs.green_tg_arn_suffix, "")
+    asg_name            = try(data.terraform_remote_state.ec2[env].outputs.asg_name, "")
+  } }
+
   # One row of widgets per environment; y offsets keep envs stacked.
   env_widgets = flatten([
     for idx, env in var.envs : [
@@ -92,7 +105,7 @@ locals {
           stat   = "Sum"
           period = 60
           metrics = [
-            [{ expression = "SEARCH('{AWS/Lambda,FunctionName,Resource,ExecutedVersion} \"${data.terraform_remote_state.lambda[env].outputs.function_name}\"', 'Sum', 60)", label = "by version", id = "e1" }]
+            [{ expression = "SEARCH('{AWS/Lambda,FunctionName,Resource,ExecutedVersion} \"${local.refs[env].function_name}\"', 'Sum', 60)", label = "by version", id = "e1" }]
           ]
           view = "timeSeries"
         }
@@ -109,8 +122,8 @@ locals {
           stat   = "Sum"
           period = 60
           metrics = [
-            ["AWS/ApplicationELB", "RequestCount", "TargetGroup", data.terraform_remote_state.ec2[env].outputs.blue_tg_arn_suffix, "LoadBalancer", data.terraform_remote_state.ec2[env].outputs.alb_arn_suffix, { label = "blue", color = "#1f77b4" }],
-            ["AWS/ApplicationELB", "RequestCount", "TargetGroup", data.terraform_remote_state.ec2[env].outputs.green_tg_arn_suffix, "LoadBalancer", data.terraform_remote_state.ec2[env].outputs.alb_arn_suffix, { label = "green", color = "#2ca02c" }],
+            ["AWS/ApplicationELB", "RequestCount", "TargetGroup", local.refs[env].blue_tg_arn_suffix, "LoadBalancer", local.refs[env].alb_arn_suffix, { label = "blue", color = "#1f77b4" }],
+            ["AWS/ApplicationELB", "RequestCount", "TargetGroup", local.refs[env].green_tg_arn_suffix, "LoadBalancer", local.refs[env].alb_arn_suffix, { label = "green", color = "#2ca02c" }],
           ]
           view = "timeSeries"
         }
@@ -127,8 +140,8 @@ locals {
           region = var.region
           period = 60
           metrics = [
-            ["AWS/ApiGateway", "Count", "ApiId", data.terraform_remote_state.lambda[env].outputs.api_id, { stat = "Sum", label = "requests" }],
-            ["AWS/ApiGateway", "5xx", "ApiId", data.terraform_remote_state.lambda[env].outputs.api_id, { stat = "Sum", label = "5xx", color = "#d62728" }],
+            ["AWS/ApiGateway", "Count", "ApiId", local.refs[env].api_id, { stat = "Sum", label = "requests" }],
+            ["AWS/ApiGateway", "5xx", "ApiId", local.refs[env].api_id, { stat = "Sum", label = "5xx", color = "#d62728" }],
           ]
           view = "timeSeries"
         }
@@ -144,7 +157,7 @@ locals {
           region = var.region
           period = 60
           metrics = [
-            ["AWS/ApiGateway", "Latency", "ApiId", data.terraform_remote_state.lambda[env].outputs.api_id, { stat = "p50", label = "p50" }],
+            ["AWS/ApiGateway", "Latency", "ApiId", local.refs[env].api_id, { stat = "p50", label = "p50" }],
             ["...", { stat = "p90", label = "p90" }],
             ["...", { stat = "p99", label = "p99" }],
           ]
@@ -163,7 +176,7 @@ locals {
           region = var.region
           period = 60
           metrics = [
-            ["AWS/Lambda", "Duration", "FunctionName", data.terraform_remote_state.lambda[env].outputs.function_name, { stat = "p50", label = "p50" }],
+            ["AWS/Lambda", "Duration", "FunctionName", local.refs[env].function_name, { stat = "p50", label = "p50" }],
             ["...", { stat = "p99", label = "p99" }],
           ]
           view = "timeSeries"
@@ -180,8 +193,8 @@ locals {
           region = var.region
           period = 60
           metrics = [
-            ["AWS/Lambda", "Errors", "FunctionName", data.terraform_remote_state.lambda[env].outputs.function_name, { stat = "Sum", color = "#d62728" }],
-            ["AWS/Lambda", "Throttles", "FunctionName", data.terraform_remote_state.lambda[env].outputs.function_name, { stat = "Sum", color = "#ff7f0e" }],
+            ["AWS/Lambda", "Errors", "FunctionName", local.refs[env].function_name, { stat = "Sum", color = "#d62728" }],
+            ["AWS/Lambda", "Throttles", "FunctionName", local.refs[env].function_name, { stat = "Sum", color = "#ff7f0e" }],
           ]
           view = "timeSeries"
         }
@@ -198,8 +211,8 @@ locals {
           region = var.region
           period = 60
           metrics = [
-            ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", data.terraform_remote_state.ec2[env].outputs.alb_arn_suffix, { stat = "Sum", label = "requests" }],
-            ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", data.terraform_remote_state.ec2[env].outputs.alb_arn_suffix, { stat = "Sum", label = "target 5xx", color = "#d62728" }],
+            ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", local.refs[env].alb_arn_suffix, { stat = "Sum", label = "requests" }],
+            ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", local.refs[env].alb_arn_suffix, { stat = "Sum", label = "target 5xx", color = "#d62728" }],
           ]
           view = "timeSeries"
         }
@@ -215,7 +228,7 @@ locals {
           region = var.region
           period = 60
           metrics = [
-            ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", data.terraform_remote_state.ec2[env].outputs.alb_arn_suffix, { stat = "p50", label = "p50" }],
+            ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", local.refs[env].alb_arn_suffix, { stat = "p50", label = "p50" }],
             ["...", { stat = "p99", label = "p99" }],
           ]
           view = "timeSeries"
@@ -233,7 +246,7 @@ locals {
           region = var.region
           period = 60
           metrics = [
-            ["AWS/EC2", "CPUUtilization", "AutoScalingGroupName", data.terraform_remote_state.ec2[env].outputs.asg_name, { stat = "Average" }],
+            ["AWS/EC2", "CPUUtilization", "AutoScalingGroupName", local.refs[env].asg_name, { stat = "Average" }],
           ]
           view = "timeSeries"
         }
@@ -249,7 +262,7 @@ locals {
           region = var.region
           period = 60
           metrics = [
-            ["CWAgent", "mem_used_percent", "AutoScalingGroupName", data.terraform_remote_state.ec2[env].outputs.asg_name, { stat = "Average" }],
+            ["CWAgent", "mem_used_percent", "AutoScalingGroupName", local.refs[env].asg_name, { stat = "Average" }],
           ]
           view = "timeSeries"
         }

@@ -28,6 +28,24 @@ variable "vpc_cidr" {
   default = "10.42.0.0/16"
 }
 
+variable "enable_autoscaling" {
+  description = "Implemented scalability improvement: ALB-request target-tracking. When false the ASG stays at exactly 2; when true it keeps a baseline of 2 and surges to max_instances under load. Enabled in prod."
+  type        = bool
+  default     = false
+}
+
+variable "max_instances" {
+  description = "ASG ceiling when autoscaling is enabled (baseline stays 2)"
+  type        = number
+  default     = 4
+}
+
+variable "alb_requests_per_target_target" {
+  description = "Target-tracking setpoint: average ALB requests per target per minute"
+  type        = number
+  default     = 60
+}
+
 locals {
   name   = "${var.project}-${var.env}"
   global = data.terraform_remote_state.global.outputs
