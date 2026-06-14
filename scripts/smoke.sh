@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke + synthetic checks against a podinfo front door.
 #   scripts/smoke.sh <base-url> [label].
-# Self-signed ALB cert => -k. Exit non-zero on any failure.
+# Self-signed ALB cert => -k. Exit non-zero on any failure. d
 set -euo pipefail
 
 BASE="${1:?base url required}"
