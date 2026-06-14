@@ -1,4 +1,4 @@
-# Multi-target Canary Rollout — Podinfo on Lambda + EC2/ALB
+# Multi-target Canary Rollout —  Podinfo on Lambda + EC2/ALB
 
 One pipeline builds, signs and SBOMs a single Podinfo container image, then
 canary-deploys the **same immutable digest** to two runtimes — Lambda behind
