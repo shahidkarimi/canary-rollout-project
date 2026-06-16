@@ -75,7 +75,7 @@ doors during the dev canary and shows both targets rolling back.
   of idle cost to a demo; private subnets + endpoints are the prod-account
   shape (see docs/SCALING.md).
 
-## Bootstrap (fresh clone → running system)
+## Bootstrap (fresh clone → running system).
 
 Prereqs: AWS CLI with admin credentials, `tfenv`, `gh` (authenticated), Git.
 
