@@ -9,6 +9,7 @@ docs/assignment.pdf
 tfplan
 *.tfstate*
 infra/global/rotation/handler.zip
+docs/rough/
 
 # build artifacts
 revision.zip
